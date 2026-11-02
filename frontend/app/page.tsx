@@ -3,23 +3,24 @@
 import { useState, useRef, useEffect } from 'react';
 import Wavesurfer from 'wavesurfer.js';
 
+// Mapa de presets completo por cada instrumento (Sincronizado con el Backend)
 const presetsPorInstrumento: Record<string, { id: string; name: string }[]> = {
   mezcla_general: [
     { id: 'commercial_loud', name: 'Commercial Loud (Mayor volumen RMS, brillante)' },
-    { id: 'warm_analog', name: 'Warm Analog (Cálido con saturación de cinta sutil)' },
+    { id: 'warm_analog', name: 'Warm Analog (Cálido con saturación sutil)' },
     { id: 'dinamico_limpio', name: 'Dinámico & Limpio (Respeta la dinámica original)' },
     { id: 'standard', name: 'Standard (Equilibrio general)' }
   ],
   voz: [
     { id: 'moderna', name: 'Moderna (Brillante, aire y presencia superior)' },
     { id: 'calida', name: 'Cálida (Íntima, con cuerpo en medios-bajos)' },
-    { id: 'radio', name: 'Efecto Radio / Podcast (Corte de graves y presencia aguda)' },
+    { id: 'radio', name: 'Efecto Radio / Podcast (Corte de graves y presencia)' },
     { id: 'intima', name: 'Íntima & Suave (Compresión delicada)' },
     { id: 'limpia', name: 'Limpia (Sin coloración excesiva)' }
   ],
   bateria: [
     { id: 'punchy', name: 'Punchy (Golpe fuerte, agudos definidos y graves firmes)' },
-    { id: 'crunchy', name: 'Crunchy (Saturación agresiva para rock/metal)' },
+    { id: 'crunchy', name: 'Crunchy (Saturación y pegada)' },
     { id: 'gigante', name: 'Gigante / Arena (Graves profundos y brillo masivo)' },
     { id: 'natural', name: 'Dinámica Natural (Control de picos sutil)' }
   ],
@@ -50,20 +51,34 @@ export default function Home() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  // URLs de audio para reproducción local
+  // Estados del Rack de Efectos Modulares Independientes
+  const [reverbActivo, setReverbActivo] = useState(false);
+  const [reverbTipo, setReverbTipo] = useState('plate');
+
+  const [delayActivo, setDelayActivo] = useState(false);
+  const [delayTiempo, setDelayTiempo] = useState('0.3');
+
+  const [compActivo, setCompActivo] = useState(false);
+
+  const [saturacionActivo, setSaturacionActivo] = useState(false);
+  const [saturacionDrive, setSaturacionDrive] = useState('2.5');
+
+  // Reproducción y Visualizador de Onda
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [masteredUrl, setMasteredUrl] = useState<string | null>(null);
   const [activeTrack, setActiveTrack] = useState<'original' | 'mastered'>('mastered');
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Referencias para Wavesurfer
   const waveformRef = useRef<HTMLDivElement | null>(null);
   const wavesurferRef = useRef<Wavesurfer | null>(null);
 
+  // Al cambiar de instrumento, selecciona el primer preset de ese grupo
   const handleInstrumentoChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const nuevoInstrumento = e.target.value;
     setInstrumento(nuevoInstrumento);
-    setPreset(presetsPorInstrumento[nuevoInstrumento][0].id);
+    if (presetsPorInstrumento[nuevoInstrumento]) {
+      setPreset(presetsPorInstrumento[nuevoInstrumento][0].id);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -73,7 +88,6 @@ export default function Home() {
       setDownloadUrl(null);
       setError('');
       
-      // Crear URL local para reproducir el original
       const urlObj = URL.createObjectURL(selectedFile);
       setOriginalUrl(urlObj);
       setMasteredUrl(null);
@@ -81,7 +95,6 @@ export default function Home() {
     }
   };
 
-  // Inicializar o actualizar Wavesurfer cuando cambia la pista activa (Original o Master)
   useEffect(() => {
     const currentUrl = activeTrack === 'mastered' ? masteredUrl : originalUrl;
     if (!currentUrl || !waveformRef.current) return;
@@ -97,7 +110,7 @@ export default function Home() {
       cursorColor: '#ffffff',
       barWidth: 3,
       barRadius: 3,
-      height: 80,
+      height: 70,
       normalize: true,
     });
 
@@ -129,10 +142,21 @@ export default function Home() {
     setLoading(true);
     setError('');
 
+    const efectosJson = JSON.stringify({
+      reverb_activo: reverbActivo,
+      reverb_tipo: reverbTipo,
+      delay_activo: delayActivo,
+      delay_tiempo: delayTiempo,
+      comp_activo: compActivo,
+      saturacion_activo: saturacionActivo,
+      saturacion_drive: saturacionDrive
+    });
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('instrumento', instrumento);
     formData.append('preset', preset);
+    formData.append('efectos_json', efectosJson);
 
     try {
       const response = await fetch('http://127.0.0.1:8000/masterizar/', {
@@ -148,7 +172,7 @@ export default function Home() {
       const url = window.URL.createObjectURL(blob);
       setMasteredUrl(url);
       setDownloadUrl(url);
-      setActiveTrack('mastered'); // Cambiar automáticamente al masterizado al terminar
+      setActiveTrack('mastered');
     } catch (err: any) {
       setError(err.message || 'Ocurrió un error inesperado.');
     } finally {
@@ -158,17 +182,15 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-lg bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-2xl">
+      <div className="w-full max-w-xl bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-2xl">
         <h1 className="text-2xl font-bold text-center mb-2 tracking-wide text-indigo-400">
-          🎛️ Masterizador Pro Personal
+          🎛️ Masterizador Personal
         </h1>
-        <p className="text-sm text-gray-400 text-center mb-6">
-          Sube tu pista, procesa y compara el resultado con un solo clic.
-        </p>
+
 
         <form onSubmit={handleMasterizar} className="space-y-5">
           {/* Selector de archivos */}
-          <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-700 rounded-xl p-5 hover:border-indigo-500 transition cursor-pointer bg-gray-950/50">
+          <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-700 rounded-xl p-4 hover:border-indigo-500 transition cursor-pointer bg-gray-950/50">
             <input
               type="file"
               accept=".wav, .mp3, .WAV, .MP3"
@@ -180,45 +202,136 @@ export default function Home() {
               <span className="block text-sm font-medium text-gray-300">
                 {file ? file.name : 'Haz clic para seleccionar o arrastra tu pista'}
               </span>
-              <span className="block text-xs text-gray-500 mt-1">WAV o MP3</span>
+              <span className="block text-xs text-gray-500 mt-1">Formatos WAV o MP3</span>
             </label>
           </div>
 
-          {/* Selector de Instrumento */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Tipo de Pista / Instrumento
-            </label>
-            <select
-              value={instrumento}
-              onChange={handleInstrumentoChange}
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
-            >
-              <option value="mezcla_general">🎵 Canción Completa (Master Global)</option>
-              <option value="voz">🎤 Voz</option>
-              <option value="bateria">🥁 Batería</option>
-              <option value="bajo">🎸 Bajo</option>
-              <option value="guitarra">🎸 Guitarra</option>
-              <option value="teclado">🎹 Teclado / Synth</option>
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Instrumento */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">Instrumento / Pista</label>
+              <select
+                value={instrumento}
+                onChange={handleInstrumentoChange}
+                className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+              >
+                <option value="mezcla_general">🎵 Canción Completa (Master)</option>
+                <option value="voz">🎤 Voz</option>
+                <option value="bateria">🥁 Batería</option>
+                <option value="bajo">🎸 Bajo</option>
+                <option value="guitarra">🎸 Guitarra</option>
+                <option value="teclado">🎹 Teclado / Synth</option>
+              </select>
+            </div>
+
+            {/* Preset */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">Preset Base</label>
+              <select
+                value={preset}
+                onChange={(e) => setPreset(e.target.value)}
+                className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
+              >
+                {presetsPorInstrumento[instrumento]?.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {/* Selector de Presets */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Preset Específico
-            </label>
-            <select
-              value={preset}
-              onChange={(e) => setPreset(e.target.value)}
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-sm text-gray-200 focus:outline-none focus:border-indigo-500"
-            >
-              {presetsPorInstrumento[instrumento].map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+          {/* --- RACK DE EFECTOS INDEPENDIENTES --- */}
+          <div className="border border-gray-800 rounded-xl p-4 bg-gray-950/40 space-y-4">
+            <h2 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">
+              🎚️ Rack de Efectos Modulares
+            </h2>
+
+            {/* Reverb */}
+            <div className="flex items-center justify-between bg-gray-900 p-3 rounded-lg border border-gray-800">
+              <div className="flex items-center space-x-3">
+                <input
+                  type="checkbox"
+                  checked={reverbActivo}
+                  onChange={(e) => setReverbActivo(e.target.checked)}
+                  className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+                />
+                <span className="text-sm font-medium text-gray-200">Reverb (Espacialidad)</span>
+              </div>
+              {reverbActivo && (
+                <select
+                  value={reverbTipo}
+                  onChange={(e) => setReverbTipo(e.target.value)}
+                  className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300"
+                >
+                  <option value="room">Room (Habitación)</option>
+                  <option value="plate">Plate (Clásica)</option>
+                  <option value="hall">Hall (Catedral)</option>
+                </select>
+              )}
+            </div>
+
+            {/* Delay */}
+            <div className="flex items-center justify-between bg-gray-900 p-3 rounded-lg border border-gray-800">
+              <div className="flex items-center space-x-3">
+                <input
+                  type="checkbox"
+                  checked={delayActivo}
+                  onChange={(e) => setDelayActivo(e.target.checked)}
+                  className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+                />
+                <span className="text-sm font-medium text-gray-200">Delay (Eco)</span>
+              </div>
+              {delayActivo && (
+                <select
+                  value={delayTiempo}
+                  onChange={(e) => setDelayTiempo(e.target.value)}
+                  className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300"
+                >
+                  <option value="0.2">Corto (200ms)</option>
+                  <option value="0.3">Medio (300ms)</option>
+                  <option value="0.5">Largo (500ms)</option>
+                </select>
+              )}
+            </div>
+
+            {/* Compresión Extra */}
+            <div className="flex items-center justify-between bg-gray-900 p-3 rounded-lg border border-gray-800">
+              <div className="flex items-center space-x-3">
+                <input
+                  type="checkbox"
+                  checked={compActivo}
+                  onChange={(e) => setCompActivo(e.target.checked)}
+                  className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+                />
+                <span className="text-sm font-medium text-gray-200">Compresión Extra</span>
+              </div>
+            </div>
+
+            {/* Saturación */}
+            <div className="flex items-center justify-between bg-gray-900 p-3 rounded-lg border border-gray-800">
+              <div className="flex items-center space-x-3">
+                <input
+                  type="checkbox"
+                  checked={saturacionActivo}
+                  onChange={(e) => setSaturacionActivo(e.target.checked)}
+                  className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+                />
+                <span className="text-sm font-medium text-gray-200">Saturación Analógica</span>
+              </div>
+              {saturacionActivo && (
+                <div className="flex items-center space-x-2 text-xs text-gray-400">
+                  <span>Drive:</span>
+                  <input
+                    type="range"
+                    min="1.0"
+                    max="6.0"
+                    step="0.5"
+                    value={saturacionDrive}
+                    onChange={(e) => setSaturacionDrive(e.target.value)}
+                    className="w-20 accent-indigo-600"
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Botón de acción */}
@@ -231,16 +344,16 @@ export default function Home() {
                 : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30'
             }`}
           >
-            {loading ? 'Procesando cadena de efectos...' : '✨ Procesar y Masterizar'}
+            {loading ? 'Procesando audio...' : '✨ Procesar y Masterizar'}
           </button>
         </form>
 
-        {/* --- VISUALIZADOR Y COMPARACIÓN A/B --- */}
+        {/* Visualizador y Comparación A/B */}
         {originalUrl && (
-          <div className="mt-8 p-5 bg-gray-950 border border-gray-800 rounded-xl">
+          <div className="mt-6 p-4 bg-gray-950 border border-gray-800 rounded-xl">
             <div className="flex justify-between items-center mb-3">
               <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-                Visualizador de Audio
+                Visualizador de Audio (A/B)
               </span>
               {masteredUrl && (
                 <div className="flex space-x-2">
@@ -248,9 +361,7 @@ export default function Home() {
                     type="button"
                     onClick={() => setActiveTrack('original')}
                     className={`px-3 py-1 text-xs rounded-lg font-medium transition ${
-                      activeTrack === 'original'
-                        ? 'bg-indigo-600 text-white shadow-md'
-                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      activeTrack === 'original' ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400'
                     }`}
                   >
                     Original
@@ -259,9 +370,7 @@ export default function Home() {
                     type="button"
                     onClick={() => setActiveTrack('mastered')}
                     className={`px-3 py-1 text-xs rounded-lg font-medium transition ${
-                      activeTrack === 'mastered'
-                        ? 'bg-emerald-600 text-white shadow-md'
-                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      activeTrack === 'mastered' ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-400'
                     }`}
                   >
                     Masterizado ✨
@@ -270,19 +379,14 @@ export default function Home() {
               )}
             </div>
 
-            {/* Contenedor de la forma de onda */}
-            <div ref={waveformRef} className="w-full mb-4" />
+            <div ref={waveformRef} className="w-full mb-3" />
 
-            {/* Botón de Play / Pause */}
             <button
               type="button"
               onClick={togglePlayPause}
-              className="w-full py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-sm font-medium transition flex items-center justify-center space-x-2"
+              className="w-full py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-sm font-medium transition"
             >
-              <span>{isPlaying ? '⏸️ Pausar' : '▶️ Reproducir'}</span>
-              <span className="text-xs text-gray-400">
-                ({activeTrack === 'original' ? 'Escuchando Original' : 'Escuchando Masterizado'})
-              </span>
+              {isPlaying ? '⏸️ Pausar' : '▶️ Reproducir'} ({activeTrack === 'original' ? 'Original' : 'Masterizado'})
             </button>
           </div>
         )}
@@ -293,14 +397,13 @@ export default function Home() {
           </div>
         )}
 
-        {/* Enlace de descarga */}
         {downloadUrl && (
-          <div className="mt-6 p-4 bg-emerald-950/40 border border-emerald-800 rounded-xl text-center animate-fade-in">
-            <p className="text-sm text-emerald-300 mb-3 font-medium">¡Pista procesada con éxito!</p>
+          <div className="mt-6 p-4 bg-emerald-950/40 border border-emerald-800 rounded-xl text-center">
+            <p className="text-sm text-emerald-300 mb-2 font-medium">¡Pista procesada con éxito!</p>
             <a
               href={downloadUrl}
               download={`master_${instrumento}.wav`}
-              className="inline-block bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-6 rounded-lg text-sm transition shadow-lg shadow-emerald-600/30"
+              className="inline-block bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-6 rounded-lg text-sm transition shadow-lg"
             >
               📥 Descargar WAV Masterizado
             </a>
